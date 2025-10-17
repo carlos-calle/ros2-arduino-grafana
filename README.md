@@ -1,119 +1,203 @@
-# Monitorización de Sensores en Tiempo Real con ROS 2, Docker y Grafana
+# Monitorización de Sensores en Tiempo Real con ROS 2, Docker e InfluxDB/Grafana
 
-Este repositorio contiene un sistema completo y containerizado para adquirir datos en tiempo real de un sensor físico (Arduino), procesarlos a través de un pipeline de ROS 2 y visualizarlos en un dashboard de Grafana en vivo. El proyecto demuestra una arquitectura robusta y escalable para aplicaciones modernas de robótica e IoT, orquestada completamente con Docker Compose.
+Sistema containerizado para adquirir datos en tiempo real desde **Arduino**, procesarlos con **ROS 2** y visualizarlos en **Grafana**. La arquitectura es desacoplada, reproducible y se levanta con **Docker Compose**.
 
------
+---
 
-## Características Principales
+## 🧩 Arquitectura
 
-  * **Integración con Hardware**: Se conecta directamente con un Arduino a través del puerto serie USB para capturar datos de un sensor del mundo real.
-  * **Pipeline de ROS 2 Multi-etapa**: Implementa un sistema modular de múltiples nodos en ROS 2 para la ingesta de datos crudos, su procesamiento y el registro en la base de datos.
-  * **Base de Datos de Series Temporales**: Utiliza **InfluxDB** como una base de datos de alto rendimiento para almacenar telemetría de sensores, ideal para cargas de trabajo de IoT y monitorización.
-  * **Visualización de Datos en Vivo**: Cuenta con un dashboard de **Grafana** para el ploteo y análisis en tiempo real de las lecturas del sensor.
-  * **Completamente Containerizado**: Todo el stack (ROS 2, InfluxDB, Grafana) se gestiona a través de **Docker Compose**, asegurando una configuración reproducible y portátil que se levanta con un solo comando.
+```
+[Arduino] --/dev/ttyACM0--> [ROS 2: sensor_node] --> /sensor_data -->
+                               [ROS 2: processor_node] --> /temperature_celsius -->
+                                   [ROS 2: database_node] --> [InfluxDB] --> [Grafana]
+```
 
------
+Servicios:
+- **ros2_app** (`ros2_serial_app_reto`): nodos ROS 2 (sensor/processor/database).
+- **influxdb**: base de datos time-series (telemetría).
+- **grafana**: panel en vivo.
 
-## Arquitectura del Sistema
-
-El proyecto sigue una arquitectura desacoplada y orientada a servicios. El flujo de datos va desde el hardware físico hasta la capa de visualización a través de una serie de servicios especializados, conectados por una red de Docker dedicada.
-
-1.  **Arduino**: Lee un valor analógico de un potenciómetro y lo escribe en el puerto serie.
-2.  **App de ROS 2 (`ros2_app`)**:
-      * `sensor_node`: Se conecta al puerto serie del Arduino (`/dev/ttyACM0`) y publica el valor entero crudo en el tópico `/sensor_data`.
-      * `processor_node`: Se suscribe a `/sensor_data`, convierte el valor crudo a grados Celsius y publica el resultado en el tópico `/temperature_celsius`.
-      * `database_node`: Se suscribe a `/temperature_celsius` y escribe cada punto de datos en la base de datos InfluxDB.
-3.  **InfluxDB (`influxdb`)**: Una base de datos de series temporales que recibe y almacena los datos de temperatura.
-4.  **Grafana (`grafana`)**: Una plataforma de visualización que consulta InfluxDB y muestra los datos en un dashboard en vivo.
-
------
+---
 
 ## 🚀 Guía de Inicio Rápido
 
-### Prerrequisitos
+### 0) Requisitos para Windows + WSL2
 
-  * **Docker** y **Docker Compose** instalados.
-  * Una placa **Arduino** con un potenciómetro conectado al pin `A0`.
-  * (Para usuarios de Windows) **WSL2** con `usbipd-win` instalado y configurado para compartir el puerto USB del Arduino.
+- **Docker Desktop** (con **WSL2 integration** activada para tu distro Ubuntu)
+- **Git**
+- **Arduino** (potenciómetro en `A0`)
+- **WSL2 + usbipd-win**
 
-### Instalación y Ejecución
+Instala y configura `usbipd-win`:
 
-1.  **Clonar el Repositorio**
+```powershell
+winget install usbipd
+```
 
-    ```bash
-    git clone https://github.com/carlos-calle/ros2-arduino-grafana.git
-    cd ros2-arduino-grafana
-    ```
+Conecta el Arduino y lista dispositivos:
 
-2.  **Lanzar el Sistema**
+```powershell
+usbipd list
+```
 
-    Asegúrate de que tu Arduino esté conectado. Luego, desde la raíz del proyecto, ejecuta:
+Localiza el **BUSID** de tu Arduino (ej. `1-1`), luego:
 
-    ```bash
-    docker compose up -d --build
-    ```
+1. Abre **Ubuntu (WSL)** y déjala **abierta**.
+2. Adjunta el USB desde PowerShell (administrador):
+   ```powershell
+   usbipd attach --wsl --busid 1-1
+   ```
+3. Verifica en WSL:
+   ```bash
+   ls -l /dev/ttyACM* || echo "No se encontró /dev/ttyACM*"
+   dmesg | tail -n 30
+   ```
 
-    Este comando hará lo siguiente:
+> En Linux nativo no necesitas `usbipd`; solo asegúrate de tener permisos de dialout para `/dev/ttyACM0`.
 
-      * Construirá la imagen personalizada de ROS 2 desde el `Dockerfile`.
-      * Descargará las imágenes oficiales de InfluxDB y Grafana.
-      * Creará una red y volúmenes de datos persistentes.
-      * Lanzará los tres servicios, esperando a que InfluxDB esté saludable antes de iniciar la app de ROS 2.
+---
 
-4.  **Ejecutar los Nodos de ROS 2**
-    Abre una nueva terminal y ejecuta lo siguiente para entrar al contenedor de ROS 2 en ejecución:
+### 1) Clonar el repositorio
 
-    ```bash
-    docker exec -it ros2_serial_app_reto bash
-    ```
+```bash
+git clone https://github.com/carlos-calle/ros2-arduino-grafana.git
+cd ros2-arduino-grafana
+```
 
-    Una vez dentro del contenedor, lanza los nodos:
+---
 
-    ```bash
-    # Activa los entornos de ROS 2 y del workspace
-    source /opt/ros/jazzy/setup.bash
-    source install/setup.bash
+### 2) Levantar el stack
 
-    # Ejecuta los nodos en segundo plano
-    ros2 run sensor_serial_pkg sensor_node &
-    ros2 run sensor_serial_pkg processor_node &
-    ros2 run sensor_serial_pkg database_node &
-    ```
+Asegúrate de que Docker Desktop esté **Running** y con WSL integrado.
 
-    Deberías ver en la consola los logs confirmando que los datos se están publicando, procesando y guardando en la base de datos.
+```bash
+docker compose up -d --build
+docker ps
+```
 
------
+Verás:
+- `influxdb` (healthy)
+- `grafana` (puerto 3000)
+- `ros2_serial_app_reto`
 
-## 📈 Uso: El Dashboard de Grafana
+> Si tu dispositivo es `/dev/ttyUSB0`, modifica el `docker-compose.yml` en `devices:`.
 
-Con el sistema en funcionamiento, ya puedes visualizar los datos.
+---
 
-1.  **Accede a Grafana**: Abre tu navegador web y navega a `http://localhost:3000`.
-2.  **Inicia Sesión**: Usa las credenciales por defecto (`admin` / `admin`) y establece una nueva contraseña.
-3.  **Configura la Fuente de Datos**:
-      * Navega a **Configuration (⚙️) \> Data Sources**.
-      * Haz clic en **Add data source** y selecciona **InfluxDB**.
-      * Establece la **URL** como `http://influxdb:8086`.
-      * En **InfluxDB Details**, proporciona las credenciales del archivo `docker-compose.yml` (`ucuenca`, `my-super-secret-token`, etc.).
-      * Haz clic en **Save & test**.
-4.  **Crea un Panel**:
-      * Navega a **Dashboards (+)** y crea un nuevo dashboard.
-      * Añade una visualización y selecciona tu fuente de datos InfluxDB.
-      * Usa el editor de consultas **Flux** o pega el siguiente código para mostrar los datos de temperatura:
-        ```js
-        from(bucket: "ros2_sensors")
-          |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-          |> filter(fn: (r) => r["_measurement"] == "temperature_data")
-          |> filter(fn: (r) => r["_field"] == "degrees_celsius")
-        ```
-      * Configura el rango de tiempo en **"Last 5 minutes"** y activa el auto-refresco para una vista en tiempo real.
+### 3) Ejecutar los nodos de ROS 2
 
------
+Entrar al contenedor:
 
-## 🧹 Apagado del Sistema
+```bash
+docker exec -it ros2_serial_app_reto bash
+```
 
-Para detener y eliminar todos los contenedores, redes y volúmenes, ejecuta el siguiente comando desde la raíz del proyecto:
+Dentro:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+# Nodos en segundo plano
+ros2 run sensor_serial_pkg sensor_node &
+ros2 run sensor_serial_pkg processor_node &
+ros2 run sensor_serial_pkg database_node &
+```
+
+Verifica tópicos:
+
+```bash
+ros2 topic list
+ros2 topic echo /sensor_data
+```
+
+---
+
+### 4) Grafana (visualización)
+
+- Abre: [http://localhost:3000](http://localhost:3000)
+- Login: `admin` / `admin` (cámbiala)
+
+⚙️ **Configuration > Data Sources > Add data source > InfluxDB**
+
+- URL: `http://influxdb:8086`
+- Org: `ucuenca`
+- Bucket: `ros2_sensors`
+- Token: `my-super-secret-token`
+
+"Save & Test" ✅
+
+Crea un dashboard y agrega un panel con Flux:
+
+```flux
+from(bucket: "ros2_sensors")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "temperature_data")
+  |> filter(fn: (r) => r["_field"] == "degrees_celsius")
+```
+
+Rango: **Last 5 minutes** | Auto-refresh: **5s**
+
+---
+
+## 🧹 Apagado y limpieza
 
 ```bash
 docker compose down -v
 ```
+
+---
+
+## 🛠️ Problemas comunes
+
+- **Docker no funciona en WSL**
+  - Activa Settings → Resources → **WSL Integration**
+  - Reinicia WSL:
+    ```powershell
+    wsl --shutdown
+    ```
+
+- **usbipd error: "There is no WSL 2 distribution running"**
+  - Mantén una terminal WSL abierta antes de ejecutar `usbipd attach`.
+
+- **No existe `/dev/ttyACM0`**
+  - Reconecta Arduino y:
+    ```powershell
+    usbipd attach --wsl --busid <BUSID>
+    ```
+  - En WSL:
+    ```bash
+    dmesg | tail -n 50
+    ```
+
+- **InfluxDB tarda en estar disponible**
+  ```bash
+  docker compose logs -f influxdb
+  ```
+
+- **Permisos de serie**
+  Asegúrate de que en el servicio ROS 2 existe:
+  ```yaml
+  devices:
+    - "/dev/ttyACM0:/dev/ttyACM0"
+  group_add:
+    - dialout
+  ```
+
+---
+
+## 📦 Versiones
+
+| Componente | Versión |
+|------------|---------|
+| ROS 2      | Jazzy   |
+| InfluxDB   | 2.7     |
+| Grafana    | latest  |
+
+---
+
+## 📄 Licencia
+
+MIT
+
+---

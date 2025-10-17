@@ -1,0 +1,14 @@
+# Archivos de compilación de Colcon
+build/
+install/
+log/
+
+# Archivos de caché de Python
+__pycache__/
+*.pyc
+
+# Archivos del sistema operativo
+.DS_Store
+
+# Archivos de configuración de IDEs (opcional)
+.vscode/

@@ -1,0 +1,64 @@
+services:
+  # 1. Tu aplicación de ROS 2
+  ros2_app:
+    build: .
+    image: ros2_serial_image_reto
+    container_name: ros2_serial_app_reto
+    privileged: true
+    volumes:
+      - ./src:/root/ros2_serial_ws/src
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+    networks:
+      - ros_network
+    tty: true
+    # Esto asegura que este contenedor no se inicie hasta que
+    # el 'healthcheck' de InfluxDB sea exitoso.
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  # 2. Base de datos InfluxDB
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
+      - DOCKER_INFLUXDB_INIT_ORG=ucuenca
+      - DOCKER_INFLUXDB_INIT_BUCKET=ros2_sensors
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-token
+    networks:
+      - ros_network
+
+    # Docker comprobará periódicamente si InfluxDB está saludable
+    # antes de permitir que otros contenedores dependan de él.
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Plataforma de visualización Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - ros_network
+
+networks:
+  ros_network:
+    driver: bridge
+
+volumes:
+  influxdb_data:
+  grafana_data:

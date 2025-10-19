@@ -11,7 +11,7 @@ services:
       - "/dev/ttyACM0:/dev/ttyACM0"
     networks:
       - ros_network
-    tty: true
+    command: bash -c "source install/setup.bash && ros2 launch sensor_serial_pkg monitor.launch.py"
     # Esto asegura que este contenedor no se inicie hasta que
     # el 'healthcheck' de InfluxDB sea exitoso.
     depends_on:
